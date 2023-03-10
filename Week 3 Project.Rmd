@@ -1,0 +1,155 @@
+---
+title: "Week 3 Project"
+author: ""
+date: "2023-02-10"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load packages}
+library(tidyverse)
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+```
+
+## NYPD Shooting Data
+This project will download the New York Police Department's shooting data from data.gov
+
+```{r clean/transform data}
+# Read NYPD Shooting Data from Data.Gov
+#data_file = "NYPD_Shooting_Incident_Data__Historic_.csv"
+
+url = "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+
+NYPD_shooting_data = read.csv(url)
+summary(NYPD_shooting_data)
+
+# Clean datafrome by converting date strings to datetime and convert time from 
+# character to time format
+NYPD = NYPD_shooting_data %>% 
+       mutate(OCCUR_DATE = mdy(OCCUR_DATE)) %>% 
+       mutate(OCCUR_TIME = parse_time(OCCUR_TIME))
+
+# Convert booleans to integers
+NYPD$STATISTICAL_MURDER_FLAG = as.integer(as.logical(NYPD$STATISTICAL_MURDER_FLAG))
+
+```
+
+
+```{r organize data}
+# Group data using group_by locations, precinct, and jurisdiction
+NYPD = NYPD %>% 
+  group_by(BORO, PRECINCT, JURISDICTION_CODE) %>% 
+  select(OCCUR_DATE, BORO, PRECINCT, JURISDICTION_CODE,
+         STATISTICAL_MURDER_FLAG, VIC_SEX, 
+         VIC_AGE_GROUP, PERP_SEX, PERP_AGE_GROUP,
+         VIC_RACE, PERP_RACE, Longitude, Latitude) %>% 
+  ungroup()
+```
+<br>
+## Data Plots
+<br>
+The first plot illustrates the total number of murders by borough.  The second plot 
+illustrates the shooting murder frequency by borough by date.  As one can see, the bar chart 
+indicates that the borough of Brooklyn has the highest shooting homicide rate, but this data
+is only looking at totals from the years 2005 to 2020.  When looking at the shooting homicides
+across dates, one can see how Brooklyn and Bronx boroughs have a high number of 
+shooting homicides but that these homicides fluctuate over the years.
+
+
+```{r data plots, echo=FALSE}
+# Plot of shooting homicide by borough
+NYPD[NYPD$STATISTICAL_MURDER_FLAG>0,] %>% 
+  ggplot(aes(x=STATISTICAL_MURDER_FLAG, y=after_stat(count),col=BORO)) +
+  geom_bar(position='dodge2') + 
+  ggtitle("Shooting Homicide by borough")
+
+# Plot of shooting homicide frequency
+NYPD[NYPD$STATISTICAL_MURDER_FLAG>0,] %>% 
+  ggplot(aes(x=OCCUR_DATE, y=after_stat(count),col=BORO)) +
+  geom_freqpoly(binwidth=100) + 
+  ggtitle(" Shooting Homicide by Date Segregated by borough")
+
+# Plot of shooting homicide by sex
+NYPD[NYPD$STATISTICAL_MURDER_FLAG>0,] %>% 
+  ggplot(aes(x=VIC_SEX, y=after_stat(count),col=BORO)) +
+  geom_bar(position='dodge2') + 
+  ggtitle("Shooting Homicide by Sex and borough")
+
+# Plot of shooting homicide by race
+NYPD[NYPD$STATISTICAL_MURDER_FLAG>0,] %>% 
+  ggplot(aes(x=VIC_RACE, y=after_stat(count),col=BORO)) +
+  geom_bar(position='dodge2') + 
+  ggtitle("Shooting Homicide by Victim Race and borough") + 
+  theme(axis.text.x=element_text(angle=45,hjust=1)) 
+
+# Plot of shooting homicide by location
+NYPD[NYPD$STATISTICAL_MURDER_FLAG>0,] %>%
+  ggplot(aes(x=Longitude, y=Latitude, col=BORO)) +
+  geom_point() + 
+  ggtitle("Shooting Homicide by Physical Location")
+
+```
+<br>
+## Analysis
+<br>
+In reviewing the previous shown plots, it was observed that there is a large difference
+in the number of male shooting homicides versus female shooting homicides.  However,
+looking at the shooting homicide by sex and borough, it appears that the female homicides
+may correlate to the male homicide.  The following analysis calculates the proportion (ratio of
+female to male) of female shooting homicides.  As can be seen in the dot plot below,
+the proportion for 3 of the 5 boroughs is approximately 10%.  However, Stanten Island and
+Queens have a higher proportion of female shooting homicides to male than Brooklyn, Bronx, and
+Manhattan.
+``` {r analysis}
+
+BOROS = NYPD %>% distinct(BORO)
+#convert tibble to string list
+BOROS = BOROS$BORO
+M_F_Homicide_proportions = rep(0, length(BOROS))
+
+for(i in 1 : length(BOROS)){
+  m = NYPD %>% filter(BORO == BOROS[i] & VIC_SEX == "M") %>% 
+    summarise(sum(STATISTICAL_MURDER_FLAG))
+  f = NYPD %>% filter(BORO == BOROS[i] & VIC_SEX == "F") %>% 
+    summarise(sum(STATISTICAL_MURDER_FLAG))
+  #print(f/m)
+  M_F_Homicide_proportions[i] = as.numeric(f/m)
+}
+# female shooting homicide proportions data frame 
+f_homicide_df = data.frame(female_homicide_proportions = M_F_Homicide_proportions, BOROS)
+
+ggplot(f_homicide_df, aes(x=c(1:5),y=female_homicide_proportions,col=BOROS)) + 
+  geom_point() + 
+  ylim(0,0.25) + 
+  xlab("borough") + 
+  ggtitle("Female to Male Shooting Homicide Proportions")
+
+```
+<br>
+## Conclusion
+<br>
+Overall, it appears that Brooklyn and Brox both have the highest total shooting 
+homicides.  When looking at the plot of the homicide location (latitude, longitude), 
+it appears that Brooklyn may cover a large, densely populated area. Additionally, Bronx
+appears to be a densely populated area.  However, additional research into this may be
+required to identify the population of those areas and overlay a map of the city to
+better identify the boundaries of the boroughs.
+
+In regards to bias, my analysis was driven by looking at location, race, and sex of
+the perpetrators and the victims.  Looking through this frame may bias the results as
+it doesn't fully consider circumstances, time, and other factors that may affect the
+interpretation of the results.
+
+The preliminary research here does not paint a complete picture.  Future work
+on this should include a map clearly identifying the boundaries of the boroughs, looking 
+at the time of year the homicides occur, and add additional information such as population
+of the boroughs and include financial information for the boroughs.
